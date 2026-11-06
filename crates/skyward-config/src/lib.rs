@@ -302,6 +302,11 @@ impl Default for Modules {
 /// something before a recovery can read touches from it.
 #[derive(Debug, Clone, Default, PartialEq, Eq, Deserialize)]
 pub struct Touch {
+    /// Override the automatic touch device detection and use this specific device path.
+    /// Useful when touch coordinates need remapping through a userspace daemon that creates
+    /// a virtual input device (e.g., /dev/input/event9).
+    #[serde(default)]
+    pub remapped_device: Option<String>,
     /// What is written once the touchscreen's input device has appeared,
     /// each value to its file: the driver makes that device as the last
     /// step of starting the controller.

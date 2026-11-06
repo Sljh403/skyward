@@ -185,12 +185,13 @@ pub struct Inputs {
     seen: HashSet<PathBuf>,
     /// What the touchscreen is told each time its panel is taken in.
     touch_writes: Vec<Write>,
+    remapped_device: Option<String>,
     w: f32,
     h: f32,
 }
 
 impl Inputs {
-    pub fn open(w: u32, h: u32, touch_writes: Vec<Write>) -> Result<Self> {
+    pub fn open(w: u32, h: u32, remapped_device: Option<String>, touch_writes: Vec<Write>) -> Result<Self> {
         let fd = unsafe { libc::inotify_init1(libc::IN_NONBLOCK | libc::IN_CLOEXEC) };
         if fd < 0 {
             return Err(io::Error::last_os_error()).context("create inotify instance");
@@ -203,7 +204,7 @@ impl Inputs {
             return Err(io::Error::last_os_error()).context("watch /dev/input");
         }
         let mut inputs =
-            Inputs { watch, panel: None, buttons: Vec::new(), seen: HashSet::new(), touch_writes, w: w as f32, h: h as f32 };
+            Inputs { watch, panel: None, buttons: Vec::new(), seen: HashSet::new(), touch_writes, remapped_device, w: w as f32, h: h as f32 };
         inputs.scan()?;
         if inputs.panel.is_none() {
             eprintln!("no touch panel yet; waiting for one to appear under /dev/input");
@@ -216,6 +217,23 @@ impl Inputs {
     /// power, volume or back key as buttons. A panel taken in is told what
     /// the device description writes to the touchscreen.
     fn scan(&mut self) -> Result<()> {
+        // If remapped_device is configured, try to use it first
+        if let Some(ref remapped_path) = self.remapped_device {
+            let path = PathBuf::from(remapped_path);
+            if path.exists() && self.panel.is_none() {
+                if let Ok(dev) = RawDevice::open(&path) {
+                    eprintln!("using configured remapped touch device: {}", remapped_path);
+                    self.panel = Some(Panel::new(path.clone(), dev)?);
+                    self.seen.insert(path);
+                    for w in &self.touch_writes {
+                        fs::write(&w.path, &w.value).with_context(|| format!("write {} to {}", w.value, w.path))?;
+                        skyward_sys::kmsg(&format!("wrote {} to {} for the touchscreen", w.value, w.path))?;
+                    }
+                    return Ok(());
+                }
+            }
+        }
+        
         for (path, dev) in evdev::raw_stream::enumerate() {
             if !self.seen.insert(path.clone()) {
                 continue;
