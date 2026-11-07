@@ -81,10 +81,12 @@ struct Panel {
     /// The kernel dropped events that were not read in time; what arrives
     /// up to the next report is incomplete.
     dropped: bool,
+    /// Coordinate transformation setting
+    transform: String,
 }
 
 impl Panel {
-    fn new(path: PathBuf, dev: RawDevice) -> Result<Self> {
+    fn new(path: PathBuf, dev: RawDevice, transform: String) -> Result<Self> {
         let mut x_range = None;
         let mut y_range = None;
         let mut slots = 1;
@@ -108,7 +110,7 @@ impl Panel {
         }
         set_nonblocking(dev.as_raw_fd()).context("make touch non-blocking")?;
         let mut panel =
-            Panel { dev, path, x_range, y_range, slots, slot: 0, down: false, was_down: false, raw: (0, 0), moved: false, dropped: false };
+            Panel { dev, path, x_range, y_range, slots, slot: 0, down: false, was_down: false, raw: (0, 0), moved: false, dropped: false, transform };
         // The kernel drops a position equal to the one a slot already holds,
         // so a touch landing where the last one lifted carries no position;
         // start from what the panel holds now.
@@ -146,8 +148,27 @@ impl Panel {
                     let time = e.as_ref().time;
                     let at = time.tv_sec as u64 * 1000 + time.tv_usec as u64 / 1000;
                     let span = |r: (i32, i32)| (r.1 - r.0).max(1) as f32;
-                    let x = (self.raw.0 - self.x_range.0) as f32 / span(self.x_range) * w;
-                    let y = (self.raw.1 - self.y_range.0) as f32 / span(self.y_range) * h;
+                    let mut x = (self.raw.0 - self.x_range.0) as f32 / span(self.x_range) * w;
+                    let mut y = (self.raw.1 - self.y_range.0) as f32 / span(self.y_range) * h;
+                    
+                    // Apply coordinate transformation
+                    match self.transform.as_str() {
+                        "rotate_90_ccw" => {
+                            let temp = x;
+                            x = y;
+                            y = w - temp;
+                        },
+                        "rotate_90_cw" => {
+                            let temp = x;
+                            x = h - y;
+                            y = temp;
+                        },
+                        "rotate_180" => {
+                            x = w - x;
+                            y = h - y;
+                        },
+                        _ => {}
+                    }
                     match (self.was_down, self.down) {
                         (false, true) => out.push(Event::Touch(Touch::Down(x, y), at)),
                         (true, true) if self.moved => out.push(Event::Touch(Touch::Move(x, y), at)),
@@ -191,7 +212,7 @@ pub struct Inputs {
 }
 
 impl Inputs {
-    pub fn open(w: u32, h: u32, remapped_device: Option<String>, touch_writes: Vec<Write>) -> Result<Self> {
+    pub fn open(w: u32, h: u32, remapped_device: Option<String>, transform: String, touch_writes: Vec<Write>) -> Result<Self> {
         let fd = unsafe { libc::inotify_init1(libc::IN_NONBLOCK | libc::IN_CLOEXEC) };
         if fd < 0 {
             return Err(io::Error::last_os_error()).context("create inotify instance");
@@ -223,7 +244,7 @@ impl Inputs {
             if path.exists() && self.panel.is_none() {
                 if let Ok(dev) = RawDevice::open(&path) {
                     eprintln!("using configured remapped touch device: {}", remapped_path);
-                    self.panel = Some(Panel::new(path.clone(), dev)?);
+                    self.panel = Some(Panel::new(path.clone(), dev, self.transform.clone())?);
                     self.seen.insert(path);
                     for w in &self.touch_writes {
                         fs::write(&w.path, &w.value).with_context(|| format!("write {} to {}", w.value, w.path))?;
@@ -245,7 +266,7 @@ impl Inputs {
             let keys = dev.supported_keys().is_some_and(|k| KEYS.iter().any(|c| k.contains(*c)));
             eprintln!("input {}: {:?} direct={direct} multitouch={mt} keys={keys}", path.display(), dev.name().unwrap_or("?"));
             if direct && mt && self.panel.is_none() {
-                self.panel = Some(Panel::new(path, dev)?);
+                self.panel = Some(Panel::new(path, dev, self.transform.clone())?);
                 for w in &self.touch_writes {
                     fs::write(&w.path, &w.value).with_context(|| format!("write {} to {}", w.value, w.path))?;
                     skyward_sys::kmsg(&format!("wrote {} to {} for the touchscreen", w.value, w.path))?;

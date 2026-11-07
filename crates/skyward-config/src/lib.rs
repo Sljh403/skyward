@@ -312,6 +312,10 @@ pub struct Touch {
     /// step of starting the controller.
     #[serde(default)]
     pub writes: Vec<Write>,
+    /// Coordinate transformation for rotated displays.
+    /// Options: "none" (default), "rotate_90_ccw", "rotate_90_cw", "rotate_180"
+    #[serde(default)]
+    pub transform: String,
 }
 
 /// Partitions as the phone itself mounts them.
