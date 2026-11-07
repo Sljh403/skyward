@@ -207,6 +207,7 @@ pub struct Inputs {
     /// What the touchscreen is told each time its panel is taken in.
     touch_writes: Vec<Write>,
     remapped_device: Option<String>,
+    transform: String,
     w: f32,
     h: f32,
 }
@@ -225,7 +226,7 @@ impl Inputs {
             return Err(io::Error::last_os_error()).context("watch /dev/input");
         }
         let mut inputs =
-            Inputs { watch, panel: None, buttons: Vec::new(), seen: HashSet::new(), touch_writes, remapped_device, w: w as f32, h: h as f32 };
+            Inputs { watch, panel: None, buttons: Vec::new(), seen: HashSet::new(), touch_writes, remapped_device, transform, w: w as f32, h: h as f32 };
         inputs.scan()?;
         if inputs.panel.is_none() {
             eprintln!("no touch panel yet; waiting for one to appear under /dev/input");
