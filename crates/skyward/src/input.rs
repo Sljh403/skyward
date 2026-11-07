@@ -115,7 +115,7 @@ impl Panel {
         // so a touch landing where the last one lifted carries no position;
         // start from what the panel holds now.
         panel.resync().context("read the touch state")?;
-        eprintln!("touch {:?}: x {:?} y {:?}, {slots} slots, slot 0 at {:?}", panel.dev.name().unwrap_or("?"), x_range, y_range, panel.raw);
+        eprintln!("touch {:?}: x {:?} y {:?}, {slots} slots, slot 0 at {:?}, transform={:?}", panel.dev.name().unwrap_or("?"), x_range, y_range, panel.raw, panel.transform);
         Ok(panel)
     }
 
@@ -245,6 +245,7 @@ impl Inputs {
             if path.exists() && self.panel.is_none() {
                 if let Ok(dev) = RawDevice::open(&path) {
                     eprintln!("using configured remapped touch device: {}", remapped_path);
+                    eprintln!("using configured remapped touch device: {}, transform={:?}", remapped_path, self.transform);
                     self.panel = Some(Panel::new(path.clone(), dev, self.transform.clone())?);
                     self.seen.insert(path);
                     for w in &self.touch_writes {
@@ -266,6 +267,7 @@ impl Inputs {
                 .is_some_and(|a| a.contains(AbsoluteAxisCode::ABS_MT_POSITION_X) && a.contains(AbsoluteAxisCode::ABS_MT_POSITION_Y));
             let keys = dev.supported_keys().is_some_and(|k| KEYS.iter().any(|c| k.contains(*c)));
             eprintln!("input {}: {:?} direct={direct} multitouch={mt} keys={keys}", path.display(), dev.name().unwrap_or("?"));
+            eprintln!("input {}: {:?} direct={direct} multitouch={mt} keys={keys}, transform={:?}", path.display(), dev.name().unwrap_or("?"), self.transform);
             if direct && mt && self.panel.is_none() {
                 self.panel = Some(Panel::new(path, dev, self.transform.clone())?);
                 for w in &self.touch_writes {
